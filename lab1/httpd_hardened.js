@@ -3,6 +3,10 @@ const http = require('http');
 const fs = require('fs');
 const url = require('url');
 const path = require('path');
+const createDOMPurify = require('dompurify');
+const {JSDOM} = require('jsdom');
+const window = (new JSDOM('')).window;
+const DOMPurify = createDOMPurify(window);
 
 const PUBLIC_DIR = 'public';
 const TEMPLATE_DIR = 'templates';
@@ -63,6 +67,8 @@ function route(req, res) {
     }
 }
 
+// Doesn't handle the case of the template being not an HTML file or too large, but the main thing here is the
+// resilience to XSS.
 function information(req, res) {
     let templatePath = path.join(serverRoot, TEMPLATE_DIR, 'information.template');
     fs.readFile(templatePath, 'utf8', (error, content) => {
@@ -70,15 +76,14 @@ function information(req, res) {
             respondWithInternalServerError(res);
         } else {
             res.writeHead(200, {'Content-Type': 'text/html'});
-
-            // Intentionally left ugly for the XSS attack
             let parsedUrl = url.parse(req.url, true);
+            let sanitizedQuery = DOMPurify.sanitize(parsedUrl.search);
             content = content.replace('{{method}}', req.method).replace('{{path}}', parsedUrl.pathname);
-            if (parsedUrl.search) {
-                content = content.replace('{{query}}', parsedUrl.search);
+            if (sanitizedQuery) {
+                content = content.replace('{{query}}', sanitizedQuery);
                 let queries = '';
-                parsedUrl.search.substr(1).split('&').forEach(function (e) {
-                    queries += '<li>' + e + '</li>';
+                sanitizedQuery.substr(1).split('&amp;').forEach((e) => {
+                    queries += `<li>${e}</li>`;
                 });
                 content = content.replace('{{queries}}', queries);
             } else {

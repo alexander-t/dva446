@@ -1,0 +1,24 @@
+{
+  "name": "lab1",
+  "version": "1.0.0",
+  "description": "Lab1 of DVA446",
+  "main": "httpd_hardened.js",
+  "dependencies": {
+    "dompurify": "^2.0.0",
+    "jsdom": "^15.1.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexander-t/dva446.git"
+  },
+  "author": "Alexander Tarlinder",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/alexander-t/dva446/issues"
+  },
+  "homepage": "https://github.com/alexander-t/dva446#readme"
+}
