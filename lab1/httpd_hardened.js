@@ -26,9 +26,13 @@ const server = http.createServer((req, res) => {
     try {
         route(req, res);
     } catch (e) {
-        // Should some unhandled synchronous call slip through.
-        console.error(e);
-        respondWithInternalServerError(res);
+        if (e instanceof URIError) {
+            respondWithBadRequest(res);
+        } else {
+            // Should some unhandled synchronous call slip through.
+            console.error(e);
+            respondWithInternalServerError(res);
+        }
     }
 });
 
@@ -188,6 +192,11 @@ function verifyDirectory(dir) {
 // Yes, these four could obviously be parameterized, but their current form promotes readability
 function respondWithInternalServerError(res) {
     res.writeHead(500);
+    res.end();
+}
+
+function respondWithBadRequest(res) {
+    res.writeHead(400);
     res.end();
 }
 
