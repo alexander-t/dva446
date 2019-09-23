@@ -1,5 +1,5 @@
 'use strict';
-const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const url = require('url');
 const path = require('path');
@@ -23,7 +23,12 @@ let household = {
     }
 };
 
-const server = http.createServer((req, res) => {
+const sslOptions = {
+    key: fs.readFileSync('cert/server.key'),
+    cert: fs.readFileSync('cert/server.crt')
+};
+
+const server = https.createServer(sslOptions, (req, res) => {
     try {
         route(req, res);
     } catch (e) {
