@@ -39,3 +39,7 @@ function clickLight(id) {
         $('#' + id).attr('class', !!res.status ? 'btn btn-warning btn-sm' : 'btn btn-secondary btn-sm');
     });
 }
+
+function logout() {
+    $.post('/logout');
+}

@@ -1,0 +1,26 @@
+{
+  "name": "lab2",
+  "version": "1.0.0",
+  "description": "DVA446 lab 2",
+  "main": "httpd.js",
+  "dependencies": {
+    "cookie": "^0.4.0"
+  },
+  "devDependencies": {
+    "chromedriver": "^77.0.0",
+    "nightwatch": "^1.2.4"
+  },
+  "scripts": {
+    "test": "node node_modules/nightwatch/bin/nightwatch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexander-t/dva446.git"
+  },
+  "author": "Alexander Tarlinder",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/alexander-t/dva446/issues"
+  },
+  "homepage": "https://github.com/alexander-t/dva446#readme"
+}

@@ -3,10 +3,19 @@ const https = require('https');
 const fs = require('fs');
 const url = require('url');
 const path = require('path');
+const querystring = require('querystring');
+const cookie = require('cookie');
 
 const PUBLIC_DIR = 'public';
+const TEMPLATE_DIR = 'templates';
+const PASSWD_FILE = 'passwd';
+const MAX_LOGIN_PAGE_BODY = 4096;
+const SESSION_COOKIE = 'athome-session';
 
 const serverRoot = process.cwd();
+let nextSessionId = 1;
+// This ever-growing array can cause an DoS attack :)
+let activeSessions = [];
 
 let household = {
     kitchen: {
@@ -23,14 +32,22 @@ let household = {
     }
 };
 
+// No error handling for SSL options and passwords... Let's save some space.
 const sslOptions = {
     key: fs.readFileSync('cert/server.key'),
     cert: fs.readFileSync('cert/server.crt')
 };
+const passwords = JSON.parse(fs.readFileSync(path.join(serverRoot, PASSWD_FILE), 'utf8'));
 
 const server = https.createServer(sslOptions, (req, res) => {
     try {
-        route(req, res);
+        if (req.method === 'GET') {
+            routeGet(req, res);
+        } else if (req.method === 'POST') {
+            routePost(req, res);
+        } else {
+            respondWithMethodNotAllowed(res);
+        }
     } catch (e) {
         if (e instanceof URIError) {
             // Feedback from lab 1 :)
@@ -45,33 +62,135 @@ const server = https.createServer(sslOptions, (req, res) => {
 
 server.listen(8000);
 
-// I didn't follow the recommendation for two routing tables here. This is simple too.
-function route(req, res) {
-    let path = url.parse(req.url, true).pathname;
-    if (path.match(/^\/[a-zA-Z]+\/lights\/[a-zA-Z]+$/)) {
-        let roomAndLight = path.substr(1).split("/");
-        if (req.method === 'GET') {
-            getLightStatus(roomAndLight[0], roomAndLight[2], res);
-        } else if (req.method === 'POST') {
-            toggleLight(roomAndLight[0], roomAndLight[2], res);
-        } else {
-            respondWithMethodNotAllowed(res);
-        }
-    } else if (path.match(/^\/[a-zA-Z]+\/temperature+$/)) {
-        if (req.method === 'GET') {
-            getTemperature(path.substr(1).split("/")[0], res);
-        } else {
-            respondWithMethodNotAllowed(res);
-        }
+function routeGet(req, res) {
+    let parsedPath = url.parse(req.url, true).pathname;
+    if (parsedPath === '/') {
+        validateSession(req, (error, data) => {
+            if (error) {
+                redirectToLoginPage(res);
+            } else {
+                mainPage(req, res);
+            }
+        });
+    } else if (parsedPath === '/login') {
+        serveFileAsStream(path.join(serverRoot, PUBLIC_DIR, 'login.html'), res, respondWithInternalServerError);
+    } else if (parsedPath.match(/^\/[a-zA-Z]+\/lights\/[a-zA-Z]+$/)) {
+        validateSession(req, (error, data) => {
+            if (error) {
+                respondWithForbidden(res);
+            } else {
+                let roomAndLight = parsedPath.substr(1).split("/");
+                getLightStatus(roomAndLight[0], roomAndLight[2], res);
+            }
+        });
+    } else if (parsedPath.match(/^\/[a-zA-Z]+\/temperature+$/)) {
+        validateSession(req, (error, data) => {
+            if (error) {
+                respondWithForbidden(res);
+            } else {
+                getTemperature(parsedPath.substr(1).split("/")[0], res);
+            }
+        });
     } else {
-        if (req.method === 'GET') {
-            staticContent(req, res);
-        } else {
-            respondWithMethodNotAllowed(res);
-        }
+        staticContent(req, res);
     }
 }
 
+function routePost(req, res) {
+    let parsedPath = url.parse(req.url, true).pathname;
+    if (parsedPath === '/login') {
+        extractLoginCredentials(req, (username, password) => {
+            if (authenticate(username, password)) {
+                activeSessions[nextSessionId] = true;
+                redirectToMainPageSettingSessionId(res, nextSessionId++);
+            } else {
+                // This is really hurtful to me, but the naive and ugly solution is the simplest and doesn't add templating complexity
+                serveFileAsStream(path.join(serverRoot, PUBLIC_DIR, 'login_failed.html'), res, respondWithInternalServerError);
+            }
+        });
+    } else if (parsedPath === '/logout') {
+        validateSession(req, (error, data) => {
+            if (error) {
+                respondWithForbidden(res);
+            } else {
+                activeSessions[data] = false;
+                redirectToLoginPage(res);
+            }
+        });
+    } else if (parsedPath.match(/^\/[a-zA-Z]+\/lights\/[a-zA-Z]+$/)) {
+        validateSession(req, (error, data) => {
+            if (error) {
+                respondWithForbidden(res);
+            } else {
+                let roomAndLight = parsedPath.substr(1).split("/");
+                toggleLight(roomAndLight[0], roomAndLight[2], res);
+            }
+        });
+    } else {
+        respondWithFileNotFound(res);
+    }
+}
+
+// Routes
+function mainPage(req, res) {
+    let templatePath = path.join(serverRoot, TEMPLATE_DIR, 'index.html');
+    fs.readFile(templatePath, 'utf8', (error, content) => {
+        if (error) {
+            respondWithInternalServerError(res);
+        } else {
+            res.writeHead(200, {'Content-Type': 'text/html'});
+            res.end(content);
+        }
+    });
+}
+
+
+// Authentication
+function extractLoginCredentials(req, callback) {
+    let requestBody = '';
+    req.on('data', data => {
+        requestBody += data;
+
+        // Programming by Stack Overflow: it _is_ wise to kill a session that tries to flood the simple login page...
+        if (requestBody.length > MAX_LOGIN_PAGE_BODY) {
+            req.connection.destroy();
+        }
+    }).on('end', () => {
+        let postData = querystring.parse(requestBody);
+
+        // Handle leniently: if they're missing, so be it. The caller will have to worry.
+        callback.call(null, postData.username, postData.password);
+    });
+}
+
+function authenticate(username, password) {
+    return passwords.hasOwnProperty(username) && passwords[username] === password;
+}
+
+function validateSession(req, callback) {
+    let cookieHeader = req.headers['cookie'];
+    if (cookieHeader) {
+        try {
+            let sessionCookie = cookie.parse(cookieHeader)[SESSION_COOKIE];
+            if (sessionCookie) {
+                if (activeSessions[sessionCookie]) {
+                    callback(null, sessionCookie);
+                } else {
+                    // One can easily argue that an inactive session is normal condition, but this handling is consistent with the other paths
+                    callback(new Error('Session inactive'));
+                }
+            } else {
+                callback(new Error('Session cookie missing'));
+            }
+        } catch (e) {
+            callback(new Error('Session cookie missing'));
+        }
+    } else {
+        callback(new Error('Session cookie missing'));
+    }
+}
+
+// Business logic
 function getLightStatus(room, light, res) {
     respondWithStatusAsJSON({room: room, light: light, status: household[room].lights[light]}, res);
 }
@@ -131,7 +250,7 @@ function serveFileAsStream(filePath, res, notFoundHandler) {
     sout.on('open', () => {
         res.writeHead(200, {'Content-Type': getMimeType(filePath)});
     }).on('data', (data) => {
-        res.write(data.toString());
+        res.write(data);
     }).on('close', () => {
         res.end();
     }).on('error', (err) => {
@@ -197,3 +316,13 @@ function respondWithMethodNotAllowed(res) {
 /////////////////////////////////////////////
 // Reuse from lab 1 without modification ends
 /////////////////////////////////////////////
+function redirectToMainPageSettingSessionId(res, sessionId) {
+    res.writeHead(302, {'Location': '/', 'Set-Cookie': `${SESSION_COOKIE}=${sessionId}`});
+    res.end();
+}
+
+function redirectToLoginPage(res) {
+    res.writeHead(302, {'Location': '/login'});
+    res.end();
+}
+
