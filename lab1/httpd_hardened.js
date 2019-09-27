@@ -136,7 +136,7 @@ function serveFileAsStream(filePath, res, notFoundHandler) {
     sout.on('open', () => {
         res.writeHead(200, {'Content-Type': getMimeType(filePath)});
     }).on('data', (data) => {
-        res.write(data.toString());
+        res.write(data);
     }).on('close', () => {
         res.end();
     }).on('error', (err) => {
