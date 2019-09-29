@@ -62,6 +62,13 @@ const server = https.createServer(sslOptions, (req, res) => {
 
 server.listen(8000);
 
+/*
+* About the logic here: I _did_ explore the option of writing a proper router that supported a "middleware",
+* which in this case was the validateSession method. However, this got quite complicated when exact routes and
+* regex routes were added into the mix, with the middleware, and so on. The code started requiring unit tests
+* for this logic, and I decided to do the naive copy and paste solution, because the focus of the exercise
+* is directory traversal and session hijacking attacks, not routing.
+*/
 function routeGet(req, res) {
     let parsedPath = url.parse(req.url, true).pathname;
     if (parsedPath === '/') {
@@ -69,11 +76,11 @@ function routeGet(req, res) {
             if (error) {
                 redirectToLoginPage(res);
             } else {
-                mainPage(req, res);
+                serveStaticTemplate('index.html', res);
             }
         });
     } else if (parsedPath === '/login') {
-        serveFileAsStream(path.join(serverRoot, PUBLIC_DIR, 'login.html'), res, respondWithInternalServerError);
+        serveStaticTemplate('login.html', res);
     } else if (parsedPath.match(/^\/[a-zA-Z]+\/lights\/[a-zA-Z]+$/)) {
         validateSession(req, (error, data) => {
             if (error) {
@@ -105,7 +112,7 @@ function routePost(req, res) {
                 redirectToMainPageSettingSessionId(res, nextSessionId++);
             } else {
                 // This is really hurtful to me, but the naive and ugly solution is the simplest and doesn't add templating complexity
-                serveFileAsStream(path.join(serverRoot, PUBLIC_DIR, 'login_failed.html'), res, respondWithInternalServerError);
+                serveStaticTemplate('login_failed.html', res);
             }
         });
     } else if (parsedPath === '/logout') {
@@ -114,6 +121,7 @@ function routePost(req, res) {
                 respondWithForbidden(res);
             } else {
                 activeSessions[data] = false;
+                // Strictly speaking, the redirect isn't needed here, because it happens on the client side.
                 redirectToLoginPage(res);
             }
         });
@@ -130,20 +138,6 @@ function routePost(req, res) {
         respondWithFileNotFound(res);
     }
 }
-
-// Routes
-function mainPage(req, res) {
-    let templatePath = path.join(serverRoot, TEMPLATE_DIR, 'index.html');
-    fs.readFile(templatePath, 'utf8', (error, content) => {
-        if (error) {
-            respondWithInternalServerError(res);
-        } else {
-            res.writeHead(200, {'Content-Type': 'text/html'});
-            res.end(content);
-        }
-    });
-}
-
 
 // Authentication
 function extractLoginCredentials(req, callback) {
@@ -207,6 +201,22 @@ function getTemperature(room, res) {
 function respondWithStatusAsJSON(status, res) {
     res.writeHead(200, {'Content-Type': 'application/json'});
     res.end(JSON.stringify(status));
+}
+
+function serveStaticTemplate(file, res) {
+    if (file.match(/^[a-zA-Z_\-]+\.?[a-zA-Z]+$/)) {
+        let templatePath = path.join(serverRoot, TEMPLATE_DIR, file);
+        fs.readFile(templatePath, 'utf8', (error, content) => {
+            if (error) {
+                respondWithInternalServerError(res);
+            } else {
+                res.writeHead(200, {'Content-Type': 'text/html'});
+                res.end(content);
+            }
+        });
+    } else {
+        throw new Error('Template files must match the following regex: ^[a-zA-Z_\-]+\\.?[a-zA-Z]+$');
+    }
 }
 
 ////////////////////////////////////////////////
