@@ -11,6 +11,7 @@ const TEMPLATE_DIR = 'templates';
 const PASSWD_FILE = 'passwd';
 const MAX_LOGIN_PAGE_BODY = 4096;
 const SESSION_COOKIE = 'athome-session';
+const DEFAULT_MIME_TYPE = 'application/octet-stream';
 
 const serverRoot = process.cwd();
 let nextSessionId = 1;
