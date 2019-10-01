@@ -35,9 +35,14 @@ function refresh() {
 
 function clickLight(id) {
     let path = lights[id];
-    $.post(path, res => {
-        $('#' + id).attr('class', !!res.status ? 'btn btn-warning btn-sm' : 'btn btn-secondary btn-sm');
-    });
+    $.post(path)
+        .done(res => {
+            $('#' + id).attr('class', !!res.status ? 'btn btn-warning btn-sm' : 'btn btn-secondary btn-sm');
+        })
+        .fail(() => {
+            // Crude, but prevents a feeling of staleness
+            window.location.replace('/');
+        });
 }
 
 function logout() {
