@@ -46,7 +46,11 @@ function clickLight(id) {
 }
 
 function logout() {
-    $.post('/logout', data => {
-        window.location.replace('/');
-    });
+    $.post('/logout')
+        .done(() => {
+            window.location.replace('/');
+        })
+        .fail(() => {
+            window.location.replace('/');
+        });
 }
