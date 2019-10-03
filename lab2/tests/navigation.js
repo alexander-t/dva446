@@ -2,7 +2,7 @@
 // These tests aren't beautiful, but they're just my regression suite for refactorings.
 const URL = 'https://localhost:8000';
 const VALID_USERNAME = 'alex';
-const VALID_PASSWORD = 'blex';
+const VALID_PASSWORD = 'secret';
 
 module.exports = {
     'Unauthenticated access to / redirects to login page': (browser) => {
