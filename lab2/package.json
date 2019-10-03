@@ -4,7 +4,8 @@
   "description": "DVA446 lab 2",
   "main": "httpd.js",
   "dependencies": {
-    "cookie": "^0.4.0"
+    "cookie": "^0.4.0",
+    "request-ip": "^2.1.3"
   },
   "devDependencies": {
     "chromedriver": "^77.0.0",
