@@ -6,6 +6,7 @@ const path = require('path');
 const querystring = require('querystring');
 const cookie = require('cookie');
 const crypto = require('crypto');
+const requestIp = require('request-ip');
 
 const PUBLIC_DIR = 'public';
 const TEMPLATE_DIR = 'templates';
@@ -15,11 +16,11 @@ const SESSION_COOKIE = 'athome-session';
 const DEFAULT_MIME_TYPE = 'application/octet-stream';
 const PBKDF2_DERIVED_KEY_LENGTH = 128;
 const PBKDF2_DIGEST = 'sha512';
+const SESSION_EXPIRATION_MINUTES = 1; // ATTENTION! Set to one minute to demonstrate expiration
+const SECRET = '2c24f798a41c92748db30cc261a0ea86414857b4ab21961cf82789cb8e2e85d4';
 
 const serverRoot = process.cwd();
 let nextSessionId = 1;
-// This ever-growing array can cause an DoS attack :)
-let activeSessions = [];
 
 let household = {
     kitchen: {
@@ -116,8 +117,8 @@ function routePost(req, res) {
     if (parsedPath === '/login') {
         extractLoginCredentials(req, (username, password) => {
             if (authenticate(username, password)) {
-                activeSessions[nextSessionId] = true;
-                redirectToMainPageSettingSessionId(res, nextSessionId++);
+                let sessionId = generateSessionId(req);
+                redirectToMainPageSettingSessionId(res, sessionId);
             } else {
                 // This is really hurtful to me, but the naive and ugly solution is the simplest and doesn't add templating complexity
                 serveStaticTemplate('login_failed.html', res);
@@ -128,7 +129,6 @@ function routePost(req, res) {
             if (error) {
                 respondWithForbidden(res);
             } else {
-                activeSessions[data] = false;
                 // Strictly speaking, the redirect isn't needed here, because it happens on the client side.
                 redirectToLoginPage(res);
             }
@@ -172,13 +172,39 @@ function authenticate(username, password) {
         passwordFile.key === crypto.pbkdf2Sync(password, passwordFile.salt, passwordFile.iterations, PBKDF2_DERIVED_KEY_LENGTH, PBKDF2_DIGEST).toString('hex');
 }
 
+/**
+ * Generates a session id on the following form:
+ * expiration time-data-sha256(expiration time||data)
+ * @param req - Used to get some client-specific values that will be put in the data
+ * @returns {string} The session id
+ */
+function generateSessionId(req) {
+    let expirationTime = Date.now() + SESSION_EXPIRATION_MINUTES * 60000;
+    let data = digestRequest(req);
+    let digest = digestSessionData(expirationTime, data);
+    return `${expirationTime}-${data}-${digest}`;
+}
+
+/**
+ * Generates a SHA256 hash of the client's IP and user agent string.
+ * @param req - Request used to get the client's IP and agent string
+ * @returns {string} - Hash in hex
+ */
+function digestRequest(req) {
+    return crypto.createHash('sha256').update(requestIp.getClientIp(req) + req.headers['user-agent']).digest('hex');
+}
+
+function digestSessionData(expirationTime, data) {
+    return crypto.createHash('sha256').update(expirationTime + data + SECRET).digest('hex');
+}
+
 function validateSession(req, callback) {
     let cookieHeader = req.headers['cookie'];
     if (cookieHeader) {
         try {
             let sessionCookie = cookie.parse(cookieHeader)[SESSION_COOKIE];
             if (sessionCookie) {
-                if (activeSessions[sessionCookie]) {
+                if (isSessionActive(req, sessionCookie)) {
                     callback(null, sessionCookie);
                 } else {
                     // One can easily argue that an inactive session is normal condition, but this handling is consistent with the other paths
@@ -193,6 +219,23 @@ function validateSession(req, callback) {
     } else {
         callback(new Error('Session cookie missing'));
     }
+}
+
+function isSessionActive(req, cookieBody) {
+    // First a loose validation of the format
+    if (cookieBody.match(/^\d+\-[a-f\d]+\-[a-f\d]+$/)) {
+        let fields = cookieBody.split('-');
+        let requestHash = digestRequest(req);
+
+        // First check if we think that the request originates from the same client (i.e. same IP and user agent)
+        if (requestHash === fields[1]) {
+            // Now, check if the fields have been tampered with, most notably the expiration time
+            if (digestSessionData(fields[0], fields[1]) === fields[2]) {
+                return Date.now() - fields[0] <= 0;
+            }
+        }
+    }
+    return false;
 }
 
 // Business logic
@@ -338,12 +381,18 @@ function respondWithMethodNotAllowed(res) {
 // Reuse from lab 1 without modification ends
 /////////////////////////////////////////////
 function redirectToMainPageSettingSessionId(res, sessionId) {
-    res.writeHead(302, {'Location': '/', 'Set-Cookie': `${SESSION_COOKIE}=${sessionId}`});
+    res.writeHead(302, {
+        'Location': '/',
+        'Set-Cookie': cookie.serialize(SESSION_COOKIE, sessionId, {httpOnly: true, secure: true})
+    });
     res.end();
 }
 
 function redirectToLoginPage(res) {
-    res.writeHead(302, {'Location': '/login'});
+    res.writeHead(302, {
+        'Location': '/login',
+        'Set-Cookie': cookie.serialize(SESSION_COOKIE, '', {expires: new Date().setTime(0)})
+    });
     res.end();
 }
 
