@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+var cookieParser = require('cookie-parser')
 
 const TEMPLATE_DIR = 'templates';
 
@@ -14,6 +15,9 @@ const sslOptions = {
 };
 
 const app = express();
+app.use(express.json());
+app.use(cookieParser());
+
 app.use('/', express.static('public', {index: false, redirect: false}));
 app.get('/', (req, res) => getRoot(req, res));
 app.post('/signin', (req, res) => postSignIn(req, res));
@@ -31,7 +35,15 @@ function getRoot(req, res) {
 }
 
 function postSignIn(req, res) {
-    console.log("/signin");
+    if (req.body.username && req.body.password) {
+        if (req.body.username === 'alex' && req.body.password === 'alex') {
+            res.type('application/json').status(200).send(JSON.stringify(true));
+        } else {
+            res.type('application/json').status(200).send(JSON.stringify(false));
+        }
+    } else {
+        res.status(400).end();
+    }
 }
 
 function postSignUp(req, res) {
