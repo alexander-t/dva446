@@ -5,6 +5,7 @@ const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
+const moment = require('moment')();
 
 // Constants related to password security taken from lab 2
 const SALT_LENGTH = 32;
@@ -19,6 +20,7 @@ const COOKIE_SESSION_ID = 'sessionid';
 const COOKIE_USERNAME = 'username';
 // Files and directories
 const PASSWORD_FILE = 'passwd';
+const SQUEAK_FILE = 'squeaks';
 const TEMPLATE_DIR = 'templates';
 // Session management
 const SECRET = 'F9911FA3CB173770F399160B46590E77';
@@ -31,12 +33,16 @@ const sslOptions = {
     cert: fs.readFileSync('cert/server.crt')
 };
 
-let userCredentials = readPasswordFile();
+let userCredentials = readJSONFile(PASSWORD_FILE);
+let headerTemplate = loadTemplate('header');
+let footerTemplate = loadTemplate('footer');
+let squeakTemplate = loadTemplate('squeak');
 
 const app = express();
 app.use(cookieParser());
 app.use(authenticationHandler);
 app.use(express.json());
+app.use(express.urlencoded({extended: false}))
 app.use('/', express.static('public', {index: false, redirect: false}));
 app.get('/', (req, res, next) => errorHandled(getRoot, req, res, next));
 app.post('/signin', (req, res, next) => errorHandled(postSignIn, req, res, next));
@@ -62,7 +68,7 @@ function errorHandled(fn, req, res, next) {
 
 function getRoot(req, res, next) {
     if (req.session) {
-        return res.sendFile(path.join(serverRoot, TEMPLATE_DIR, 'main.html'));
+        return renderMainPage(req, res);
     } else {
         return res.sendFile(path.join(serverRoot, TEMPLATE_DIR, 'index.html'));
     }
@@ -73,15 +79,12 @@ function postSignIn(req, res) {
     let password = req.body.password;
     if (username && password) {
         if (authenticate(username, password)) {
-            return res.type('application/json').status(200)
-                .cookie(COOKIE_SESSION_ID, generateSessionId(username))
-                .cookie(COOKIE_USERNAME, username)
-                .send(JSON.stringify(true));
+            initiateSession(res, username);
         } else {
-            return res.type('application/json').status(200).send(JSON.stringify(false));
+            res.type('application/json').status(200).send(JSON.stringify(false));
         }
     } else {
-        return res.status(400).end();
+        res.status(400).end();
     }
 }
 
@@ -91,12 +94,12 @@ function postSignUp(req, res) {
     if (username && username.length >= MIN_USERNAME_LENGTH && !userCredentials.find(c => c.username === username)) {
         if (password && password.length >= MIN_PASSWORD_LENGTH && !(new RegExp(username)).test(password)) {
             addUserCredentials(createEncryptedCredentials(username, password));
-            return res.type('application/json').status(200).cookie(COOKIE_SESSION_ID, 'xxx').cookie(COOKIE_USERNAME, username).send(JSON.stringify({success: true}));
+            initiateSession(res, username);
         } else {
-            return res.type('application/json').status(200).send(JSON.stringify({reason: 'password'}));
+            res.type('application/json').status(200).send(JSON.stringify({reason: 'password'}));
         }
     } else {
-        return res.type('application/json').status(200).send(JSON.stringify({reason: 'username'}));
+        res.type('application/json').status(200).send(JSON.stringify({reason: 'username'}));
     }
 }
 
@@ -107,19 +110,20 @@ function postSignOut(req, res) {
 }
 
 function postSqueak(req, res) {
-    console.log("/squeak");
+    let username = req.username;
+    let squeak = req.body.squeak;
+    if (username && squeak && squeak.length > 0) {
+        let squeaks = readJSONFile(SQUEAK_FILE);
+        squeaks.push({name: username, date: moment.format('ddd h:mm'), squeak: squeak});
+        fs.writeFileSync(path.join(serverRoot, SQUEAK_FILE), JSON.stringify(squeaks));
+    }
+    res.redirect('/');
 }
 
 // Credentials management
-function readPasswordFile() {
-    // Quite simplified: The password file is expected to be there and have valid contents. No error handling to
-    // keep the exercise uncluttered.
-    return JSON.parse(fs.readFileSync(path.join(serverRoot, PASSWORD_FILE), 'utf8'));
-}
-
 function addUserCredentials(credentials) {
     // Happily ignoring I/O-related errors and race conditions for the sake of simplicity
-    let persistentCredentials = readPasswordFile();
+    let persistentCredentials = readJSONFile(PASSWORD_FILE);
     persistentCredentials.push(credentials);
     fs.writeFileSync(path.join(serverRoot, PASSWORD_FILE), JSON.stringify(persistentCredentials));
     userCredentials = persistentCredentials;
@@ -141,6 +145,15 @@ function authenticate(username, password) {
 }
 
 // Session management
+
+// Initiates a session by setting up the required cookies and a positive response payload
+function initiateSession(res, username) {
+    res.type('application/json').status(200)
+        .cookie(COOKIE_SESSION_ID, generateSessionId(username))
+        .cookie(COOKIE_USERNAME, username)
+        .send(JSON.stringify({success: true}));
+}
+
 /**
  * Generates a session id on the following form:
  * expiration time-data-sha256(expiration time||data)
@@ -180,12 +193,18 @@ function isSessionActive(sessionId, username) {
     return false;
 }
 
+// Templating
+function loadTemplate(templateName) {
+    return fs.readFileSync(path.join(serverRoot, TEMPLATE_DIR, templateName + '.template'), 'utf8');
+}
+
 // Middleware
 function authenticationHandler(req, res, next) {
     let sessionId = req.cookies.sessionid;
     let username = req.cookies.username;
     if (sessionId && username && isSessionActive(sessionId, username)) {
         req.session = sessionId;
+        req.username = username;
     }
     next();
 }
@@ -194,4 +213,21 @@ function errorHandler(err, req, res, next) {
     console.error(err);
     res.status(err.status || 500);
     res.end();
+}
+
+// Business logic?
+function readJSONFile(filename) {
+    // Quite simplified: The password file is expected to be there and have valid contents. No error handling to
+    // keep the exercise uncluttered.
+    return JSON.parse(fs.readFileSync(path.join(serverRoot, filename), 'utf8'));
+}
+
+function renderMainPage(req, res) {
+    // There's a special place in hell for people who write templating like this :)
+    let html = headerTemplate.replace('{{name}}', req.username);
+    readJSONFile(SQUEAK_FILE).forEach(s => {
+        html += squeakTemplate.replace('{{name}}', s.name).replace('{{date}}', s.date).replace('{{squeak}}', s.squeak);
+    });
+    html += footerTemplate;
+    res.send(html);
 }
