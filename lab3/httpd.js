@@ -5,7 +5,7 @@ const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
-const moment = require('moment')();
+const moment = require('moment');
 
 // Constants related to password security taken from lab 2
 const SALT_LENGTH = 32;
@@ -24,7 +24,7 @@ const SQUEAK_FILE = 'squeaks';
 const TEMPLATE_DIR = 'templates';
 // Session management
 const SECRET = 'F9911FA3CB173770F399160B46590E77';
-const SESSION_EXPIRATION_MINUTES = 1;
+const SESSION_EXPIRATION_MINUTES = 5;
 
 const serverRoot = process.cwd();
 
@@ -114,7 +114,7 @@ function postSqueak(req, res) {
     let squeak = req.body.squeak;
     if (username && squeak && squeak.length > 0) {
         let squeaks = readJSONFile(SQUEAK_FILE);
-        squeaks.push({name: username, date: moment.format('ddd h:mm'), squeak: squeak});
+        squeaks.push({name: username, date: moment().format('ddd h:mm'), squeak: squeak});
         fs.writeFileSync(path.join(serverRoot, SQUEAK_FILE), JSON.stringify(squeaks));
     }
     res.redirect('/');
