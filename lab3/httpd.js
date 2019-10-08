@@ -182,7 +182,6 @@ function isSessionActive(sessionId, username) {
         let fields = sessionId.split('-');
         let usernameHash = digestUsername(username);
 
-        // First check if we think that the request originates from the same client (i.e. same IP and user agent)
         if (usernameHash === fields[1]) {
             // Now, check if the fields have been tampered with, most notably the expiration time
             if (digestSessionData(fields[0], fields[1]) === fields[2]) {
