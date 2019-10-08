@@ -6,6 +6,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const moment = require('moment');
+const mustacheExpress = require('mustache-express');
 
 // Constants related to password security taken from lab 2
 const SALT_LENGTH = 32;
@@ -23,7 +24,7 @@ const TEMPLATE_DIR = 'templates';
 const SECRET = 'F9911FA3CB173770F399160B46590E77';
 const SESSION_EXPIRATION_MINUTES = 5;
 
-const serverRoot = process.cwd();
+const serverRoot = __dirname;
 
 const sslOptions = {
     key: fs.readFileSync('cert/server.key'),
@@ -31,11 +32,11 @@ const sslOptions = {
 };
 
 let userCredentials = readJSONFile(PASSWORD_FILE);
-let headerTemplate = loadTemplate('header');
-let footerTemplate = loadTemplate('footer');
-let squeakTemplate = loadTemplate('squeak');
 
 const app = express();
+app.engine('mustache', mustacheExpress());
+app.set('view engine', 'mustache');
+app.set('views', path.join(serverRoot, TEMPLATE_DIR));
 app.use(cookieParser());
 app.use(authenticationHandler);
 app.use(express.json());
@@ -146,8 +147,8 @@ function authenticate(username, password) {
 // Initiates a session by setting up the required cookies and a positive response payload
 function initiateSession(res, username) {
     res.type('application/json').status(200)
-        .cookie(COOKIE_SESSION_ID, generateSessionId(username))
-        .cookie(COOKIE_USERNAME, username)
+        .cookie(COOKIE_SESSION_ID, generateSessionId(username), {httpOnly: true, secure: true})
+        .cookie(COOKIE_USERNAME, username, {httpOnly: true, secure: true})
         .send(JSON.stringify({success: true}));
 }
 
@@ -215,7 +216,7 @@ function errorHandler(err, req, res, next) {
 // Business logic?
 function allowedUsername(username) {
     return username
-        && username.match(/^[a-zA-Z][a-zA-Z_\.\- ]{6,62}[a-zA-Z]$/)
+        && username.match(/^[a-zA-Z][a-zA-Z_\.\- ]{2,62}[a-zA-Z]$/)
         && !userCredentials.find(c => c.username === username);
 }
 
@@ -231,11 +232,7 @@ function readJSONFile(filename) {
 }
 
 function renderMainPage(req, res) {
-    // There's a special place in hell for people who write templating like this :)
-    let html = headerTemplate.replace('{{name}}', req.username);
-    readJSONFile(SQUEAK_FILE).forEach(s => {
-        html += squeakTemplate.replace('{{name}}', s.name).replace('{{date}}', s.date).replace('{{squeak}}', s.squeak);
-    });
-    html += footerTemplate;
-    res.send(html);
+    // Even the hardened version uses a synchronous operation which may block the the server for large files.
+    // However, fixing this would require pagination as well, and that's not relevant to stored XSS protection.
+    res.render('main', {name: req.username, squeaks: readJSONFile(SQUEAK_FILE)});
 }
