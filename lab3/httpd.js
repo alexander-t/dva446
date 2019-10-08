@@ -26,7 +26,7 @@ const TEMPLATE_DIR = 'templates';
 const SECRET = 'F9911FA3CB173770F399160B46590E77';
 const SESSION_EXPIRATION_MINUTES = 5;
 
-const serverRoot = process.cwd();
+const serverRoot = __dirname;
 
 const sslOptions = {
     key: fs.readFileSync('cert/server.key'),
