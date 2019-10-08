@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+
+    <title>Squeak</title>
+<body>
+{{> top}}
+<div class="container">
+{{#squeaks}}
+<div class="card mb-2">
+    <div class="card-header">
+        {{name}}
+        <span class="float-right">{{date}}</span>
+    </div>
+    <div class="card-body">
+        <p class="card-text">{{squeak}}</p>
+    </div>
+</div>
+{{/squeaks}}
+</div>
+<!-- Optional JavaScript -->
+<script src="js/jquery-3.4.1.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/squeak.js"></script>
+</body>
+</html>
