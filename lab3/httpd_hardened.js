@@ -23,6 +23,13 @@ const TEMPLATE_DIR = 'templates';
 // Session management
 const SECRET = 'F9911FA3CB173770F399160B46590E77';
 const SESSION_EXPIRATION_MINUTES = 5;
+// CSRF-related
+const IV_LENGTH = 16;
+const AUTHTAG_LENGTH = 16;
+const ONETIME_KEY_SALT_LENGTH = 64;
+const MIN_CIPHERTEXT_LENGTH = IV_LENGTH + AUTHTAG_LENGTH + ONETIME_KEY_SALT_LENGTH;
+const MASTER_KEY = '530CE32AAC715AAA849027BCC26C6C64';
+const CSRF_TOKEN_EXPIRATION_MINUTES = 1; // WATCH THIS! It's for illustrative purposes!
 
 const serverRoot = __dirname;
 
@@ -46,6 +53,7 @@ app.get('/', (req, res, next) => errorHandled(getRoot, req, res, next));
 app.post('/signin', (req, res, next) => errorHandled(postSignIn, req, res, next));
 app.post('/signup', (req, res, next) => errorHandled(postSignUp, req, res, next));
 app.post('/signout', (req, res, next) => errorHandled(postSignOut, req, res, next));
+app.use('/squeak', csrfHandler);
 app.post('/squeak', (req, res, next) => errorHandled(postSqueak, req, res, next));
 app.use(errorHandler);
 
@@ -65,7 +73,7 @@ function errorHandled(fn, req, res, next) {
 }
 
 function getRoot(req, res, next) {
-    if (req.session) {
+    if (req.sessionId) {
         return renderMainPage(req, res);
     } else {
         return res.sendFile(path.join(serverRoot, TEMPLATE_DIR, 'index.html'));
@@ -180,7 +188,6 @@ function isSessionActive(sessionId, username) {
         let fields = sessionId.split('-');
         let usernameHash = digestUsername(username);
 
-        // First check if we think that the request originates from the same client (i.e. same IP and user agent)
         if (usernameHash === fields[1]) {
             // Now, check if the fields have been tampered with, most notably the expiration time
             if (digestSessionData(fields[0], fields[1]) === fields[2]) {
@@ -191,26 +198,89 @@ function isSessionActive(sessionId, username) {
     return false;
 }
 
-// Templating
-function loadTemplate(templateName) {
-    return fs.readFileSync(path.join(serverRoot, TEMPLATE_DIR, templateName + '.template'), 'utf8');
-}
-
 // Middleware
 function authenticationHandler(req, res, next) {
     let sessionId = req.cookies.sessionid;
     let username = req.cookies.username;
     if (sessionId && username && isSessionActive(sessionId, username)) {
-        req.session = sessionId;
+        req.sessionId = sessionId;
         req.username = username;
     }
     next();
+}
+
+function csrfHandler(req, res, next) {
+    if (isCsrfTokenValid(req.body.CSRFToken, req.sessionId)) {
+        next();
+    } else {
+        // Not exactly production code, but kind of obvious.
+        res.status(403).send('CSRF protection kicked in!');
+    }
 }
 
 function errorHandler(err, req, res, next) {
     console.error(err);
     res.status(err.status || 500);
     res.end();
+}
+
+// Encryption
+function encrypt(plainText) {
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const salt = crypto.randomBytes(ONETIME_KEY_SALT_LENGTH);
+    const oneTimeKey = generateOneTimeKey(salt);
+    const aes256gcmCipher = crypto.createCipheriv('aes-256-gcm', oneTimeKey, iv);
+    const encrypted = Buffer.concat([aes256gcmCipher.update(plainText, 'utf8'), aes256gcmCipher.final()]);
+    const authTag = aes256gcmCipher.getAuthTag();
+    return Buffer.concat([salt, iv, authTag, encrypted]).toString('base64');
+}
+
+function decrypt(base64CipherText) {
+    const cipherTextBuffer = Buffer.from(base64CipherText, 'base64');
+    if (cipherTextBuffer.length < MIN_CIPHERTEXT_LENGTH) {
+        throw new Error('Invalid ciphertext: salt, iv, auth tag missing');
+    }
+
+    // This may be the first time in my life that I regret using constants
+    const salt = cipherTextBuffer.slice(0, ONETIME_KEY_SALT_LENGTH);
+    const iv = cipherTextBuffer.slice(ONETIME_KEY_SALT_LENGTH, ONETIME_KEY_SALT_LENGTH + IV_LENGTH);
+    const authTag = cipherTextBuffer.slice(ONETIME_KEY_SALT_LENGTH + IV_LENGTH, ONETIME_KEY_SALT_LENGTH + IV_LENGTH + AUTHTAG_LENGTH);
+    const cipherText = cipherTextBuffer.slice(ONETIME_KEY_SALT_LENGTH + IV_LENGTH + AUTHTAG_LENGTH);
+    const oneTimeKey = generateOneTimeKey(salt);
+    const aes256gcmDecipher = crypto.createDecipheriv('aes-256-gcm', oneTimeKey, iv);
+    aes256gcmDecipher.setAuthTag(authTag);
+    return aes256gcmDecipher.update(cipherText, 'binary', 'utf8') + aes256gcmDecipher.final('utf8');
+}
+
+function generateOneTimeKey(salt) {
+    return crypto.pbkdf2Sync(MASTER_KEY, salt, 4096, 32, 'sha512');
+}
+
+// CSRF
+function generateCsrfToken(sessionId) {
+    let expirationTime = Date.now() + CSRF_TOKEN_EXPIRATION_MINUTES * 60000;
+    // If bytes matter, encrypting a JSON object may not be 100% efficient, but in an exercise, so they don't.
+    return encrypt(JSON.stringify({ts: expirationTime, sid: sessionId}));
+}
+
+function isCsrfTokenValid(csrfToken, sessionId) {
+    if (csrfToken) {
+        try {
+            let tsAndSid = JSON.parse(decrypt(csrfToken));
+            if (tsAndSid.ts && tsAndSid.sid && tsAndSid.sid.match(/\d{10}/)) {
+                if (Date.now() - tsAndSid.ts > 0) {
+                    // There is no real rationale behind being extra careful about logging CSRF token failures compared to (not) logging invalid session failures
+                    console.error('CSRF token expired: ' + csrfToken);
+                } else {
+                    return tsAndSid.sid === sessionId;
+                }
+            }
+        } catch (e) {
+            // The most likely error is by far failed decryption because of an invalid cipher text (buffer) format.
+            console.error('Invalid CSRF token: ' + csrfToken);
+        }
+    }
+    return false;
 }
 
 // Business logic?
@@ -234,5 +304,9 @@ function readJSONFile(filename) {
 function renderMainPage(req, res) {
     // Even the hardened version uses a synchronous operation which may block the the server for large files.
     // However, fixing this would require pagination as well, and that's not relevant to stored XSS protection.
-    res.render('main', {name: req.username, squeaks: readJSONFile(SQUEAK_FILE)});
+    res.render('main', {
+        name: req.username,
+        csrfToken: generateCsrfToken(req.sessionId),
+        squeaks: readJSONFile(SQUEAK_FILE)
+    });
 }
