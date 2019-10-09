@@ -213,8 +213,11 @@ function csrfHandler(req, res, next) {
     if (isCsrfTokenValid(req.body.CSRFToken, req.sessionId)) {
         next();
     } else {
-        // Not exactly production code, but kind of obvious.
-        res.status(403).send('CSRF protection kicked in!');
+        if (req.sessionId) {
+            res.status(403).send('CSRF protection kicked in!');
+        } else {
+            res.redirect('/');
+        }
     }
 }
 
