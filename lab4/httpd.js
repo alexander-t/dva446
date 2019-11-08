@@ -5,6 +5,7 @@ const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
+const moment = require('moment');
 const mustacheExpress = require('mustache-express');
 const MongoClient = require('mongodb').MongoClient;
 
@@ -32,11 +33,11 @@ app.use(authenticationHandler);
 app.use(express.json());
 app.use(express.urlencoded({extended: false}))
 app.use('/', express.static('public', {index: false, redirect: false}));
-app.get('/', (req, res, next) => errorHandled2(getRoot, req, res, next));
-app.post('/signin', (req, res, next) => errorHandled2(postSignIn, req, res, next));
-app.post('/signup', (req, res, next) => errorHandled2(postSignUp, req, res, next));
-app.post('/signout', (req, res, next) => errorHandled2(postSignOut, req, res, next));
-app.post('/squeak', (req, res, next) => errorHandled2(postSqueak, req, res, next));
+app.get('/', (req, res, next) => errorHandled(getRoot, req, res, next));
+app.post('/signin', (req, res, next) => errorHandled(postSignIn, req, res, next));
+app.post('/signup', (req, res, next) => errorHandled(postSignUp, req, res, next));
+app.post('/signout', (req, res, next) => errorHandled(postSignOut, req, res, next));
+app.post('/squeak', (req, res, next) => errorHandled(postSqueak, req, res, next));
 app.use(errorHandler);
 
 let mongoURL = getMongoURLOrDie();
@@ -63,8 +64,7 @@ MongoClient.connect(mongoURL, {useNewUrlParser: true})
     );
 
 // Routes
-
-async function errorHandled2(fn, req, res, next) {
+async function errorHandled(fn, req, res, next) {
     try {
         await fn(req, res, next);
     } catch (e) {
@@ -128,8 +128,9 @@ async function postSignOut(req, res) {
 async function postSqueak(req, res) {
     let username = req.username;
     let squeak = req.body.squeak;
+    let recipient = req.body.recipient ? req.body.recipient : 'all';
     if (username && squeak && squeak.length > 0) {
-        await addSqueak(username, 'all', squeak);
+        await addSqueak(username, recipient, squeak);
     }
     res.redirect('/');
 }
@@ -204,18 +205,20 @@ function allowedPassword(password, username) {
 }
 
 async function renderMainPage(req, res) {
-    // Even the hardened version uses a synchronous operation which may block the the server for large files.
-    // However, fixing this would require pagination as well, and that's not relevant to stored XSS protection.
-    res.render('main', {
-        name: req.username,
-        csrfToken: 'vulnerable',
-        squeaks: await getSqueaks('all')
-    });
+    let username = req.username;
+    Promise.all([getUsers(), getSqueaks('all'), getSqueaks(username)]).then(
+        results => {
+            res.render('main', {
+                name: username,
+                users: results[0],
+                squeaks: results[1],
+                squeals: results[2]
+            });
+        });
 }
 
 async function addSqueak(username, recipient, squeak) {
-    let options = {weekday: 'short', hour: 'numeric', minute: 'numeric'};
-    let time = new Date().toLocaleDateString('sv-SE', options);
+    let time = moment().format('ddd hh:mm');
     await squeaks.insertOne({
         name: username,
         time: time,
@@ -227,6 +230,11 @@ async function addSqueak(username, recipient, squeak) {
 async function getSqueaks(username) {
     // This will so break if many squeaks are returned, but limited result sets and pagination are out of scope.
     return await squeaks.find({recipient: username}).toArray();
+}
+
+async function getUsers() {
+    // The usernames are distinct, but to a MongoDB novice, this seems like the cleanest query.
+    return await credentials.distinct('username');
 }
 
 async function removeOldSessions() {

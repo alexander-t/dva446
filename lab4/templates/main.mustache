@@ -12,17 +12,32 @@
 <body>
 {{> top}}
 <div class="container">
-{{#squeaks}}
-<div class="card mb-2">
-    <div class="card-header">
-        {{name}}
-        <span class="float-right">{{date}}</span>
+    <h4>Squeaks</h4>
+    {{#squeaks}}
+    <div class="card mb-2">
+        <div class="card-header">
+            {{name}}
+            <span class="float-right">{{time}}</span>
+        </div>
+        <div class="card-body">
+            <p class="card-text">{{squeak}}</p>
+        </div>
     </div>
-    <div class="card-body">
-        <p class="card-text">{{squeak}}</p>
+    {{/squeaks}}
+    <hr/>
+    <h4>Squeals</h4>
+    {{#squeals}}
+    <div class="card mb-2">
+        <div class="card-header">
+            {{name}}
+            <span class="float-right">{{time}}</span>
+        </div>
+        <div class="card-body">
+            <p class="card-text">{{squeak}}</p>
+        </div>
     </div>
-</div>
-{{/squeaks}}
+    {{/squeals}}
+
 </div>
 <!-- Optional JavaScript -->
 <script src="js/jquery-3.4.1.min.js"></script>

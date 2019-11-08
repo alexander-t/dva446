@@ -7,7 +7,14 @@
                 <div class="input-group-text">{{name}}</div>
             </div>
             <input type="text" name="squeak" class="form-control" id="squeaktext">
-            <input type="hidden" name="CSRFToken" value="{{csrfToken}}">
+            <div class="input-group-append">
+                <select class="custom-select" name="recipient" id="recipient">
+                    <option value="all" selected="">@ Everyone</option>
+                    {{#users}}
+                    <option value="{{.}}">@ {{.}}</option>
+                    {{/users}}
+                </select>
+            </div>
         </div>
         <button type="submit" class="btn btn-primary mr-sm-2 disabled">Squeak!</button>
     </form>
