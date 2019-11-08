@@ -16,7 +16,7 @@ const COOKIE_USERNAME = 'username';
 const TEMPLATE_DIR = 'templates';
 const CERT_DIR = 'cert';
 // Session management
-const SESSION_EXPIRATION_MINUTES = 5;
+const SESSION_EXPIRATION_MINUTES = 15;
 
 const serverRoot = __dirname;
 const sslOptions = {
