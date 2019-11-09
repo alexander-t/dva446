@@ -9,10 +9,8 @@ const moment = require('moment');
 const mustacheExpress = require('mustache-express');
 const MongoClient = require('mongodb').MongoClient;
 
-// Cookie names
-const COOKIE_SESSION_ID = 'sessionid';
-const COOKIE_USERNAME = 'username';
-const COOKIE_SIGNATURE = 'signature';
+const COOKIE_NAME = "squeak-session";
+
 // Cookie protection
 const MASTER_KEY = '025136B8C1DA7F837FCEF66F288537C5913D3A69A8CD7E3B3F12267EB714C48B34275C3772C08ACBB9DF88D91647BCF1B2517AF82F009C32AE39ACBCF96D2FE6';
 // Files and directories
@@ -125,8 +123,7 @@ async function postSignOut(req, res) {
     if (sessionId) {
         await sessions.findOneAndDelete({sessionId: sessionId});
     }
-    res.clearCookie(COOKIE_SESSION_ID);
-    res.clearCookie(COOKIE_USERNAME);
+    res.clearCookie(COOKIE_NAME);
     res.redirect('/');
 }
 
@@ -155,10 +152,9 @@ async function authenticate(username, password) {
 // Initiates a session by setting up the required cookies and a positive response payload
 async function initiateSession(res, username) {
     let sessionId = await generatePersistedSessionId();
+    let cookie = {sessionid: sessionId, username: username, signature: digestCookie(sessionId, username)};
     res.type('application/json').status(200)
-        .cookie(COOKIE_SESSION_ID, sessionId, {httpOnly: true, secure: true})
-        .cookie(COOKIE_USERNAME, username, {httpOnly: true, secure: true})
-        .cookie(COOKIE_SIGNATURE, digestCookie(sessionId, username), {httpOnly: true, secure: true})
+        .cookie(COOKIE_NAME, JSON.stringify(cookie), {httpOnly: true, secure: true})
         .send(JSON.stringify({success: true}));
 }
 
@@ -193,16 +189,25 @@ function digestCookie(sessionId, username) {
 // Middleware
 
 async function authenticationHandler(req, res, next) {
-    let sessionId = req.cookies.sessionid;
-    let username = req.cookies.username;
-    let signature = req.cookies.signature;
-
-    if (sessionId && username && signature
-        && digestCookie(sessionId, username) === signature && await isSessionActive(sessionId)) {
-        req.sessionId = sessionId;
-        req.username = username;
+    let session = extractValidSession(req);
+    if (session && await isSessionActive(session.sessionid)) {
+        req.sessionId = session.sessionid;
+        req.username = session.username;
     }
     next();
+}
+
+function extractValidSession(req) {
+    try {
+        let session = JSON.parse(req.cookies[COOKIE_NAME]);
+        if (session.sessionid && session.username && session.signature) {
+            if (digestCookie(session.sessionid, session.username) === session.signature) {
+                return session;
+            }
+        }
+    } catch (e) {
+    }
+    return null;
 }
 
 function errorHandler(err, req, res, next) {
