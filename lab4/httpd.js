@@ -180,7 +180,7 @@ function extractValidSession(req) {
     let session = null;
     try {
         session = JSON.parse(req.cookies[COOKIE_NAME]);
-        if (session.hasOwnProperty("sessionid") && session.hasOwnProperty("username")) {
+        if (session.sessionid && session.username) {
             return session;
         }
     } catch (e) {
