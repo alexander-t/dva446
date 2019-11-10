@@ -19,6 +19,9 @@ const CERT_DIR = 'cert';
 // Session management
 const SESSION_EXPIRATION_MINUTES = 15;
 
+const SESSION_ID_REGEX = /^[a-f\d]+$/;
+const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z_\.\- ]{2,62}[a-zA-Z]$/;
+
 const serverRoot = __dirname;
 const sslOptions = {
     key: fs.readFileSync(path.join(serverRoot, CERT_DIR, 'server.key')),
@@ -120,8 +123,8 @@ async function postSignUp(req, res) {
 
 async function postSignOut(req, res) {
     const sessionId = req.sessionId;
-    if (sessionId) {
-        await sessions.findOneAndDelete({sessionId: sessionId});
+    if (sessionId && sessionId.match(SESSION_ID_REGEX)) {
+        await sessions.findOneAndDelete({sessionId: {$eq: sessionId}});
     }
     res.clearCookie(COOKIE_NAME);
     res.redirect('/');
@@ -130,7 +133,7 @@ async function postSignOut(req, res) {
 async function postSqueak(req, res) {
     let username = req.username;
     let squeak = req.body.squeak;
-    let recipient = req.body.recipient ? req.body.recipient : 'all';
+    let recipient = req.body.recipient.match(USERNAME_REGEX) ? req.body.recipient : 'all';
     if (username && squeak && squeak.length > 0) {
         await addSqueak(username, recipient, squeak);
     }
@@ -140,11 +143,13 @@ async function postSqueak(req, res) {
 // Credentials management
 
 async function addUserCredentials(username, password) {
-    return await credentials.insertOne({username: username, password: password})
+    let salt = crypto.randomBytes(32).toString('hex');
+    return await credentials.insertOne({username: username, passwordHash: digest(password, salt), salt: salt});
 }
 
 async function authenticate(username, password) {
-    return await credentials.findOne({username: username, password: password}) != null;
+    let user = await credentials.findOne({username: {$eq: username}});
+    return user && digest(password, user.salt) === user.passwordHash;
 }
 
 // Session management
@@ -152,7 +157,7 @@ async function authenticate(username, password) {
 // Initiates a session by setting up the required cookies and a positive response payload
 async function initiateSession(res, username) {
     let sessionId = await generatePersistedSessionId();
-    let cookie = {sessionid: sessionId, username: username, signature: digestCookie(sessionId, username)};
+    let cookie = {sessionid: sessionId, username: username, signature: digest(sessionId, username, cookieSecret)};
     res.type('application/json').status(200)
         .cookie(COOKIE_NAME, JSON.stringify(cookie), {httpOnly: true, secure: true})
         .send(JSON.stringify({success: true}));
@@ -167,8 +172,8 @@ async function generatePersistedSessionId() {
 }
 
 async function isSessionActive(sessionId) {
-    return (sessionId.match(/^[a-f\d]+$/))
-        && await sessions.findOne({sessionId: sessionId, expires: {$gt: Date.now()}}) != null;
+    return sessionId.match(SESSION_ID_REGEX)
+        && await sessions.findOne({sessionId: {$eq: sessionId}, expires: {$gt: Date.now()}}) != null;
 }
 
 // Cookie protection
@@ -181,9 +186,8 @@ function generateCookieSecret() {
     return crypto.pbkdf2Sync(MASTER_KEY, crypto.randomBytes(64), 4096, 32, 'sha512').toString('hex');
 }
 
-function digestCookie(sessionId, username) {
-    // Don't use hash stretching for no particular reason
-    return crypto.createHash('sha256').update(sessionId + username + cookieSecret).digest('hex');
+function digest(...values) {
+    return crypto.createHash('sha256').update(values.join('')).digest('hex');
 }
 
 // Middleware
@@ -201,7 +205,9 @@ function extractValidSession(req) {
     try {
         let session = JSON.parse(req.cookies[COOKIE_NAME]);
         if (session.sessionid && session.username && session.signature) {
-            if (digestCookie(session.sessionid, session.username) === session.signature) {
+            if (session.sessionid.match(SESSION_ID_REGEX)
+                && session.username.match(USERNAME_REGEX)
+                && digest(session.sessionid, session.username, cookieSecret) === session.signature) {
                 return session;
             }
         }
@@ -221,8 +227,8 @@ function errorHandler(err, req, res, next) {
 async function allowedUsername(username) {
     try {
         return username
-            && username.match(/^[a-zA-Z][a-zA-Z_\.\- ]{2,62}[a-zA-Z]$/)
-            && null == await credentials.findOne({username: username});
+            && username.match(USERNAME_REGEX)
+            && null == await credentials.findOne({username: {$eq: username}});
     } catch (error) {
         console.error(error);
         return false;
@@ -259,7 +265,7 @@ async function addSqueak(username, recipient, squeak) {
 
 async function getSqueaks(username) {
     // This will so break if many squeaks are returned, but limited result sets and pagination are out of scope.
-    return await squeaks.find({recipient: username}).toArray();
+    return await squeaks.find({recipient: {$eq: username}}).toArray();
 }
 
 async function getUsers() {
