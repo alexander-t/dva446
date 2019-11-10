@@ -185,7 +185,7 @@ function extractValidSession(req) {
         }
     } catch (e) {
     }
-    return session;
+    return null;
 }
 
 function errorHandler(err, req, res, next) {
