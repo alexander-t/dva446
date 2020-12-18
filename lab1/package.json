@@ -4,7 +4,7 @@
   "description": "Lab1 of DVA446",
   "main": "httpd_hardened.js",
   "dependencies": {
-    "dompurify": "^2.0.0",
+    "dompurify": "^2.0.17",
     "jsdom": "^15.1.1"
   },
   "devDependencies": {},
