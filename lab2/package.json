@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "chromedriver": "^77.0.0",
-    "nightwatch": "^1.2.4"
+    "nightwatch": "^1.7.13"
   },
   "scripts": {
     "test": "node node_modules/nightwatch/bin/nightwatch"
